@@ -1,0 +1,48 @@
+# telek6 on a control node, never a SUT node (MEASUREMENT_PROTOCOL.md 1.1). The
+# clue3.tier=loadgen label keeps it out of the SUT power denominator. Long-lived,
+# so pod scheduling, image pull and k6 boot are outside every observation window.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: telek6
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telek6
+  namespace: telek6
+  labels: {app: telek6, clue3.tier: loadgen}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: telek6}
+  template:
+    metadata:
+      labels: {app: telek6, clue3.tier: loadgen}
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - {key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule}
+      containers:
+        - name: telek6
+          image: ghcr.io/ise-tu-berlin/telek6:0.1.0
+          ports: [{containerPort: 5124, name: http}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 3
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: telek6
+  namespace: telek6
+spec:
+  type: NodePort
+  selector: {app: telek6}
+  ports:
+    - {port: 5124, targetPort: http, nodePort: 30124}
