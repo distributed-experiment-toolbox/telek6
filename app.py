@@ -7,7 +7,7 @@ POST /runs/<token>/stop SIGINT k6 (graceful, k6 flushes its summary), SIGKILL af
 GET  /runs/<token>/download  zip of the run directory: script.js, the files,
                          console.ndjson (the script's console.log lines), stdout.ndjson
                          (what handleSummary returns as stdout), stderr.log (k6's own log)
-GET  /healthz
+GET  /healthz            -> {status, k6: first line of `k6 version`}
 
 Generic over what the script does: the plan is just a file, the summary is
 whatever k6 prints. It runs arbitrary scripts sent to it - cluster-internal
@@ -32,6 +32,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HTTP_PORT = int(os.environ.get("TELEK6_HTTP_PORT", "5124"))
 DATA_PATH = os.environ.get("TELEK6_DATA", "./data")
 K6 = os.environ.get("TELEK6_K6", "k6")
+# First line of `k6 version`, read once at startup and served on /healthz, so a
+# client can refuse a generator whose k6 is not the one it was tested against.
+K6_VERSION = None
 STOP_GRACE_S = float(os.environ.get("TELEK6_STOP_GRACE_S", "10"))
 
 runs = {}       # token -> dict(status, exit_code, started_at, finished_at, timeout_s)
@@ -125,7 +128,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parts = self.path.strip("/").split("/")
         if self.path == "/healthz":
-            return self._send(200, {"status": "healthy"})
+            return self._send(200, {"status": "healthy", "k6": K6_VERSION})
         if len(parts) >= 2 and parts[0] == "runs" and parts[1] in runs:
             token = parts[1]
             if len(parts) == 2:
@@ -160,6 +163,8 @@ def main():
     os.makedirs(DATA_PATH, exist_ok=True)
     if shutil.which(K6) is None:
         raise SystemExit(f"k6 binary {K6!r} not found")
+    global K6_VERSION
+    K6_VERSION = subprocess.run([K6, "version"], capture_output=True, text=True, check=True).stdout.splitlines()[0]
     srv = ThreadingHTTPServer(("0.0.0.0", HTTP_PORT), Handler)
     print(f"telek6 listening on :{HTTP_PORT}, data in {DATA_PATH}", flush=True)
     srv.serve_forever()

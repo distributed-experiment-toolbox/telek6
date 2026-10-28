@@ -31,6 +31,10 @@ def main():
                 call(f"{base}/healthz"); break
             except OSError:
                 time.sleep(0.1)
+        health = json.loads(call(f"{base}/healthz")[1])
+        local = subprocess.run(["k6", "version"], capture_output=True, text=True).stdout.splitlines()[0]
+        assert health == {"status": "healthy", "k6": local}, (health, local)
+        print(f"ok  healthz reports the k6 it runs: {local}")
         status, body = call(f"{base}/runs/start", {
             "script_base64": base64.b64encode(SCRIPT).decode(),
             "files": {"plan.ndjson": base64.b64encode(b"hello-plan\n").decode()},
